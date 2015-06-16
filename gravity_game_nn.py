@@ -19,17 +19,25 @@ purple   = ( 255,   0, 255)
 
 
 
+
 class Block(object):
+	TOP = 1
+	BOTTOM = 0
 	x = SCREEN_WIDTH
 	y = 470
-	h = 130
-	w = 80
+	h = 80
+	w = 50
 	color = purple
-	def __init__(self):
+	def __init__(self, t):
 		self.x = Block.x
-		self.y = Block.y
-		self.h = Block.h
 		self.w = Block.w
+		self.h = Block.h
+		if t == Block.BOTTOM:
+			self.y = Block.y
+		elif t == Block.TOP:
+			self.y = 50
+
+
 
 	def draw(self, screen):
 		pygame.draw.rect(screen, Block.color, (self.x, self.y, self.w, self.h))
@@ -50,11 +58,10 @@ class Block(object):
 
 class Player(object):
 	x = 100
-	y = 500
+	y = SCREEN_HEIGHT - 100
 	h = 50
 	w = 20
-	jump_speed = -20
-	gravity = 100
+	gravity = 40
 	color = blue
 
 	def __init__(self):
@@ -62,17 +69,20 @@ class Player(object):
 		self.y = Player.y
 		self.h = Player.h
 		self.w = Player.w
+		self.gravity = Player.gravity
 		self.dy = 0
 
-	def jump(self):
-		if not self.dy and self.y == Player.y:
-			self.dy = Player.jump_speed
+	def grav_change(self):
+		self.gravity = -self.gravity
 
 	def update(self, fps):
-		self.dy += Player.gravity / fps
+		self.dy += self.gravity / float(fps)
 		self.y += self.dy
 		if self.y > Player.y:
 			self.y = Player.y
+			self.dy = 0
+		if self.y < 50:
+			self.y = 50
 			self.dy = 0
 
 
@@ -80,9 +90,9 @@ class Player(object):
 		pygame.draw.rect(screen, Player.color, (self.x, self.y, self.w, self.h))
 
 class Game(object):
-	speed = 400
-	min_distance = 225
-	max_distance = 400
+	speed = 300
+	min_distance = 150
+	max_distance = 500
 
 	def __init__(self, seed, fps):
 		self.fps = fps
@@ -90,7 +100,7 @@ class Game(object):
 		random.seed(seed)
 		self.distance = 0
 		self.player = Player()
-		self.blocks = [Block()]
+		self.blocks = [Block(Block.TOP), Block(Block.BOTTOM)]
 		self.next_block = random.randint(Game.min_distance, Game.max_distance)
 
 
@@ -114,14 +124,20 @@ class Game(object):
 		self.player.update(self.fps)
 
 		if self.next_block < (SCREEN_WIDTH - self.blocks[-1].x):
-			self.blocks.append(Block())
+			self.blocks.append(Block(Block.TOP))
+			self.blocks.append(Block(Block.BOTTOM))
 			self.next_block = random.randint(Game.min_distance, Game.max_distance)
 
 	def isColliding(self):
 		for block in self.blocks:
 			if (block.x + block.w) > self.player.x and (self.player.x + self.player.w) > block.x:
-				if (self.player.y + self.player.h) > block.y:
+				if (block.y + block.h) > self.player.y > block.y or (block.y + block.h) > (self.player.y + self.player.h) > block.y:
 					return True
+
+		# To keep from stalling
+		if self.distance > 300000:
+			return True
+
 		return False
 
 class Indicator(object):
@@ -155,10 +171,10 @@ def mod_sigmoid(x):
 	return 1 / (1 + np.exp(-x))
 
 class NeuralNetwork(object):
-	def __init__(self, indicators):
+	def __init__(self, indicators, hidden_layer_size=3):
 		self.indicators = indicators
-		self.w1 = np.random.randn(len(self.indicators), 3)
-		self.w2 = np.random.randn(3, 1)
+		self.w1 = np.random.randn(len(self.indicators), hidden_layer_size)
+		self.w2 = np.random.randn(hidden_layer_size, 1)
 
 	def output(self, game):
 		o0 = np.array([j.indicate(game) for j in self.indicators])
@@ -167,6 +183,12 @@ class NeuralNetwork(object):
 		i2 = np.dot(o1, self.w2)
 		return i2.sum()
 
+	def set_weight_1(self, weights):
+		self.w1 = weights
+
+	def set_weight_2(self, weights):
+		self.w2 = weights
+
 	def draw(self, screen):
 		for i in self.indicators:
 			i.draw(screen)
@@ -174,6 +196,8 @@ class NeuralNetwork(object):
 def get_fitness(seed, nn, fps):
 	running = True
 	game = Game(seed, fps)
+	pressed_last_frame = False
+
 	while running:
 		if nn.output(game) > 0:
 			nn_to_press = True
@@ -181,7 +205,12 @@ def get_fitness(seed, nn, fps):
 			nn_to_press = False
 
 		if nn_to_press:
-			game.player.jump()
+			if not pressed_last_frame:
+				game.player.grav_change()
+			pressed_last_frame = True
+		else:
+			pressed_last_frame = False
+
 		game.update()
 
 		if game.isColliding():
@@ -201,6 +230,8 @@ def run_game(game, fps, nn=None):
 	nn_on = (nn != None)
 	running = True
 
+	pressed_last_frame = False
+
 	while running:
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
@@ -215,7 +246,11 @@ def run_game(game, fps, nn=None):
 				nn_to_press = True
 
 		if keys[pygame.K_UP] == True or (nn_to_press and nn_on):
-			game.player.jump()
+			if not pressed_last_frame:
+				game.player.grav_change()
+			pressed_last_frame = True
+		else:
+			pressed_last_frame = False
 
 		window.fill(white)
 		game.update()
@@ -229,29 +264,29 @@ def run_game(game, fps, nn=None):
 			print(game.distance)
 
 		pygame.draw.rect(window, black, (0, 550, SCREEN_WIDTH, 50))
+		pygame.draw.rect(window, black, (0, 0, SCREEN_WIDTH, 50))
 		clock.tick(fps)
 		pygame.display.update()
-
-seed = 3
+ 
+seed = 4
 
 t0 = time.time()
 
-x_indicators = [Indicator(x) for x in range(200, SCREEN_WIDTH, 75)]
-nn = NeuralNetwork(x_indicators)
-
-i = [NeuralNetwork(x_indicators) for j in range(1000)]
+x_indicators = [Indicator(x) for x in range(150, SCREEN_WIDTH, 50)]
+i = [NeuralNetwork(x_indicators, 3) for j in range(1000)]
 scores = [get_fitness(seed, z, FPS) for z in i]
-
 nn = i[scores.index(max(scores))]
 
 t1 = time.time()
 print("Time to execute: " + str(t1-t0))
 print("Best distance:   " + str(max(scores)))
-
+print(nn.w1)
+print(nn.w2)
 game = Game(seed, FPS)
 
 run_game(game, FPS, nn)
 
+# run_game(game, FPS)
 
 
 
