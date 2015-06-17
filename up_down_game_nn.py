@@ -23,21 +23,16 @@ purple   = ( 255,   0, 255)
 
 
 class Block(object):
-	TOP = 1
-	BOTTOM = 0
 	x = SCREEN_WIDTH
-	y = 470
-	h = 80
+	y = 450
+	h = 100
 	w = 50
 	color = purple
-	def __init__(self, t):
+	def __init__(self):
 		self.x = Block.x
 		self.w = Block.w
 		self.h = Block.h
-		if t == Block.BOTTOM:
-			self.y = Block.y
-		elif t == Block.TOP:
-			self.y = 50
+		self.y = random.randint(50, Block.y)
 
 
 
@@ -60,10 +55,10 @@ class Block(object):
 
 class Player(object):
 	x = 100
-	y = SCREEN_HEIGHT - 100
-	h = 50
+	y = SCREEN_HEIGHT - 125
+	h = 75
 	w = 20
-	gravity = 30
+	yvel = -10
 	color = blue
 
 	def __init__(self):
@@ -71,30 +66,24 @@ class Player(object):
 		self.y = Player.y
 		self.h = Player.h
 		self.w = Player.w
-		self.gravity = Player.gravity
 		self.dy = 0
 
-	def grav_change(self):
-		self.gravity = -self.gravity
-
 	def update(self, fps):
-		self.dy += self.gravity / float(fps)
 		self.y += self.dy
 		if self.y > Player.y:
 			self.y = Player.y
 			self.dy = 0
-		if self.y < 50:
-			self.y = 50
+		if self.y < Player.h:
+			self.y = 75
 			self.dy = 0
-
 
 	def draw(self, screen):
 		pygame.draw.rect(screen, Player.color, (self.x, self.y, self.w, self.h))
 
 class Game(object):
-	speed = 500
+	speed = 400
 	min_distance = 200
-	max_distance = 500
+	max_distance = 350
 
 	def __init__(self, seed, fps):
 		self.fps = fps
@@ -102,7 +91,7 @@ class Game(object):
 		random.seed(seed)
 		self.distance = 0
 		self.player = Player()
-		self.blocks = [Block(Block.TOP), Block(Block.BOTTOM)]
+		self.blocks = [Block()]
 		self.next_block = random.randint(Game.min_distance, Game.max_distance)
 
 
@@ -126,8 +115,7 @@ class Game(object):
 		self.player.update(self.fps)
 
 		if self.next_block < (SCREEN_WIDTH - self.blocks[-1].x):
-			self.blocks.append(Block(Block.TOP))
-			self.blocks.append(Block(Block.BOTTOM))
+			self.blocks.append(Block())
 			self.next_block = random.randint(Game.min_distance, Game.max_distance)
 
 	def isColliding(self):
@@ -142,23 +130,34 @@ class Game(object):
 
 		return False
 
+	def manageInputs(self, i):
+		if i[0] and i[1]:
+			self.player.dy = 0
+		elif i[0]:
+			self.player.dy = Player.yvel
+		elif i[1]:
+			self.player.dy = -Player.yvel
+		else:
+			self.player.dy = 0
+
+
 class Indicator(object):
 	on_color = green
 	off_color = red
-	y = 0
-	h = SCREEN_HEIGHT
-	w = 2
-	def __init__(self, x):
+	h = 10
+	w = 10
+	def __init__(self, x, y):
 		self.x = x
-		self.y = Indicator.y
+		self.y = y
 		self.h = Indicator.h
 		self.w = Indicator.w
 
 	def indicate(self, game):
 		for block in game.blocks:
 			if block.x < self.x < (block.x + block.w):
-				self.indicated = True
-				return 1
+				if block.y < self.y < (block.y + block.h):
+					self.indicated = True
+					return 1
 		self.indicated = False
 		return -1
 
@@ -169,25 +168,44 @@ class Indicator(object):
 			c = Indicator.off_color
 		pygame.draw.rect(screen, c, (self.x, self.y, self.w, self.h))
 
+class PositionIndicator(object):
+	def __init__(self):
+		pass
+
+	def indicate(self, game):
+		return (game.player.y + game.player.h / float(2)) / 50
+
+	def draw(self, screen):
+		pass
+
+
 def mod_sigmoid(x):
 	return 1 / (1 + np.exp(-x))
 
 class NeuralNetwork(object):
-	def __init__(self, indicators, base_nn=None, hidden_layer_size=3):
+	def __init__(self, indicators, base_nn=None, hidden_layer_size=3, consec=0):
 		self.indicators = indicators
 		if base_nn == None:
 			self.w1 = np.random.randn(len(self.indicators), hidden_layer_size)
-			self.w2 = np.random.randn(hidden_layer_size, 1)
+			self.w2 = np.random.randn(hidden_layer_size, 2)
 		else:
-			self.w1 = base_nn.w1 + np.random.randn(len(self.indicators), hidden_layer_size)/5
-			self.w2 = base_nn.w2 + np.random.randn(hidden_layer_size, 1)/5
+			if consec > 4:
+				consec = 4
+			self.w1 = base_nn.w1/(1 + consec) + np.random.randn(len(self.indicators), hidden_layer_size)/(5-consec)
+			self.w2 = base_nn.w2/(1 + consec) + np.random.randn(hidden_layer_size, 2)/(5-consec)
 
 	def output(self, game):
 		o0 = np.array([j.indicate(game) for j in self.indicators])
 		i1 = np.dot(o0, self.w1)
 		o1 = mod_sigmoid(i1)
 		i2 = np.dot(o1, self.w2)
-		return i2
+
+		of = [0,0]
+		if i2[0] > 0:
+			of[0] = 1
+		if i2[1] > 0:
+			of[1] = 1
+		return of
 
 	def set_weight_1(self, weights):
 		self.w1 = weights
@@ -200,28 +218,13 @@ class NeuralNetwork(object):
 			i.draw(screen)
 
 def get_fitness(seed, nn, fps):
-	running = True
 	game = Game(seed, fps)
-	pressed_last_frame = False
-
-	while running:
-		if nn.output(game) > 0:
-			nn_to_press = True
-		else:
-			nn_to_press = False
-
-		if nn_to_press:
-			if not pressed_last_frame:
-				game.player.grav_change()
-			pressed_last_frame = True
-		else:
-			pressed_last_frame = False
-
+	while True:
+		n = nn.output(game)
+		game.manageInputs(n)
 		game.update()
-
 		if game.isColliding():
 			return game.distance
-
 
 
 def run_game(game, fps, nn=None):
@@ -245,21 +248,18 @@ def run_game(game, fps, nn=None):
 
 		keys = pygame.key.get_pressed()
 
-		nn_to_press = False
 		if nn_on:
-			n = nn.output(game)
-			if n > 0:
-				nn_to_press = True
-
-		if keys[pygame.K_UP] == True or (nn_to_press and nn_on):
-			if not pressed_last_frame:
-				game.player.grav_change()
-			pressed_last_frame = True
+			i = nn.output(game)
 		else:
-			pressed_last_frame = False
+			i = [0,0]
+			if keys[pygame.K_UP] == True:
+				i[0] = 1
+			if keys[pygame.K_DOWN] == True:
+				i[1] = 1
 
-		window.fill(white)
+		game.manageInputs(i)
 		game.update()
+		window.fill(white)
 		game.draw(window)
 
 		if nn_on:
@@ -274,34 +274,48 @@ def run_game(game, fps, nn=None):
 		clock.tick(fps)
 		pygame.display.update()
  
+
+
+
+
+
 seed = 1
 
 ai_on = True
 
 if ai_on:
 
+	first_generation_size = 20000
+	generation_size = 2000
+	top_choice_num = 6
 
-	generation_size = 1000
-	top_choice_num = 3
-	t = []
 
-	t.append(time.time())
+	
 
-	indicators = [Indicator(x) for x in range(150, SCREEN_WIDTH, 75)]
-	i = [NeuralNetwork(indicators, None, 5) for j in range(generation_size)]
+	indicators = [PositionIndicator()]
+
+	for x in range(150, 500, 75):
+		for y in range(100, 550, 50):
+			indicators.append(Indicator(x, y))
+
+
+	t = [time.time()]
+
+	i = [NeuralNetwork(indicators, None, 5) for j in range(first_generation_size)]
 	i = sorted(i, key=lambda x: get_fitness(seed, x, FPS), reverse=True)
 	n = i[0:top_choice_num]
 
 	t.append(time.time())
+	best = [get_fitness(seed,n[0],FPS)]
+	consec = 0
 
+	print(str(0) + " - " + str(t[-1] - t[-2]) + " - " + str(best[0]))
 
-	print(str(0) + " - " + str(t[-1] - t[-2]) + " - " + str(get_fitness(seed,n[0],FPS)))
-
-	for j in range(1,10):
+	for j in range(1,20):
 		
 		i = []
 		for k in n:
-			i.extend([NeuralNetwork(indicators, k, 5) for q in range(int(generation_size/float(top_choice_num + 1)))])
+			i.extend([NeuralNetwork(indicators, k, 5, consec) for q in range(int(generation_size/float(top_choice_num + 1)))])
 			i.append(k)
 		i.extend([NeuralNetwork(indicators, None, 5) for q in range(int(generation_size/float(top_choice_num + 1)))])
 
@@ -309,14 +323,18 @@ if ai_on:
 		n = i[0:top_choice_num]
 
 		t.append(time.time())
-
-		print(str(j) + " - " + str(t[-1] - t[-2]) + " - " + str(get_fitness(seed,n[0],FPS)))
+		best.append(get_fitness(seed,n[0],FPS))
+		if best[-1] == best[-2]:
+			consec += 1
+		else:
+			consec = 0
+		print(str(j) + " - " + str(t[-1] - t[-2]) + " - " + str(best[-1]))
 
 	t1 = time.time()
 	print("Time to execute: " + str(t[-1] - t[0]))
 	print("Best distance:   " + str(get_fitness(seed,n[0],FPS)))
-	print(n[0].w1)
-	print(n[0].w2)
+	#print(n[0].w1)
+	#print(n[0].w2)
 
 
 game = Game(seed, FPS)
