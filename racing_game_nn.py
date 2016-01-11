@@ -4,13 +4,11 @@ from pygame.locals import *
 import random
 import numpy as np
 import time
-#from visual import *
-#from physutil import *
 from math import *
 
 SCREEN_HEIGHT = 700
 SCREEN_WIDTH = 1200
-NEW_TRACK_SEPARATION_DIST = 20
+NEW_TRACK_SEPARATION_DIST = 200
 
 FPS = 60
 
@@ -42,10 +40,12 @@ class Player(object):
     WIDTH = 20.0
     HEIGHT = 40.0
     EDGE_WIDTH = 2
+    INDICATOR_ANGLES = np.arange(-pi/2 - .01, pi/2 + .01, pi/6)
+    INDICATOR_LENGTH = 150.0
 
 
 
-    def __init__(self, to_draw, nn = None, color=DEFAULT_COLOR, x=0, y=0, theta=0):
+    def __init__(self, to_draw, nn = None, x=0, y=0, theta = 0, color=DEFAULT_COLOR):
         self.nn = nn
         self.to_draw = to_draw
         self.x = x
@@ -65,7 +65,7 @@ class Player(object):
                     if intersect(track.corners[i][0],track.corners[i][1], track.corners[i+1][0],track.corners[i+1][1], corners[j][0],corners[j][1], corners[j+1][0], corners[j+1][1]):
                         return
         if self.nn is not None:
-            i = self.nn.output()
+            i = self.nn.output(self.indicate())
         else:
             keys = pygame.key.get_pressed()
             i = [0,0,0,0]
@@ -129,6 +129,25 @@ class Player(object):
             self.y + Player.WIDTH / 2 * cos(-self.theta) + Player.HEIGHT / 2 * sin(-self.theta)), \
         ]
 
+    def indicate(self):
+        o = []
+        for a in Player.INDICATOR_ANGLES:
+            indicated = False
+            for track in self.tracks:
+                for i in range(len(track.corners)-1):
+                    point = self.find_indicator_point(a)
+                    if (intersect(self.x, self.y, point[0], point[1], \
+                        track.corners[i][0], track.corners[i][1], track.corners[i+1][0], track.corners[i+1][1] )):
+                        indicated = True
+                        break
+                if indicated:
+                    break
+            o.append(indicated)
+        return o
+
+    def find_indicator_point(self, angle):
+        return (self.x + Player.INDICATOR_LENGTH * cos(self.theta + angle), self.y + Player.INDICATOR_LENGTH * sin(self.theta + angle))
+
 
     def draw(self, screen):
         if not self.to_draw:
@@ -138,6 +157,15 @@ class Player(object):
         for i in range(len(corners) - 1):
             pygame.draw.line(screen, self.color, corners[i], corners[i+1], Player.EDGE_WIDTH)
         pygame.draw.line(screen, self.color, corners[0], corners[-1], Player.EDGE_WIDTH)
+        print(self.indicate())
+        #if(self.nn != None):
+        self.draw_indicators(screen)
+            
+
+    def draw_indicators(self, screen):
+        for angle in Player.INDICATOR_ANGLES:
+            pygame.draw.line(screen, self.color, (self.x, self.y), self.find_indicator_point(angle))
+
 
 
             
@@ -189,67 +217,41 @@ class Game(object):
     def isOver(self):
         return False
 
+    def scores(self):
+        return [1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y)) for player in self.players]
 
-class Indicator(object):
-    on_color = green
-    off_color = red
-    h = 10
-    w = 10
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.h = Indicator.h
-        self.w = Indicator.w
-        self.indicated = False
-
-    def indicate(self, game):
-        self.indicated = False
-        return -1
-
-    def draw(self, screen):
-        if self.indicated:
-            c = Indicator.on_color
-        else:
-            c = Indicator.off_color
-        pygame.draw.rect(screen, c, (self.x, self.y, self.w, self.h))
-
-class PositionIndicator(object):
-    def __init__(self):
-        pass
-
-    def indicate(self, game):
-        return (game.player.y + game.player.h / float(2)) / 50
-
-    def draw(self, screen):
-        pass
 
 
 def mod_sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 class NeuralNetwork(object):
-    def __init__(self, indicators, base_nn=None, hidden_layer_size=3, consec=0):
-        self.indicators = indicators
+    def __init__(self, num_indicators, base_nn=None, hidden_layer_size=3, consec=0):
+        self.num_indicators = num_indicators
         if base_nn == None:
-            self.w1 = np.random.randn(len(self.indicators), hidden_layer_size)
-            self.w2 = np.random.randn(hidden_layer_size, 2)
+            self.w1 = np.random.randn(num_indicators, hidden_layer_size)
+            self.w2 = np.random.randn(hidden_layer_size, 4)
         else:
             if consec > 4:
                 consec = 4
-            self.w1 = base_nn.w1/(1 + consec) + np.random.randn(len(self.indicators), hidden_layer_size)/(5-consec)
+            self.w1 = base_nn.w1/(1 + consec) + np.random.randn(num_indicators, hidden_layer_size)/(5-consec)
             self.w2 = base_nn.w2/(1 + consec) + np.random.randn(hidden_layer_size, 2)/(5-consec)
 
-    def output(self, game):
-        o0 = np.array([j.indicate(game) for j in self.indicators])
+    def output(self, indications):
+        o0 = np.array(indications)
         i1 = np.dot(o0, self.w1)
         o1 = mod_sigmoid(i1)
         i2 = np.dot(o1, self.w2)
 
-        of = [0,0]
+        of = [0,0,0,0]
         if i2[0] > 0:
             of[0] = 1
         if i2[1] > 0:
             of[1] = 1
+        if i2[2] > 0:
+            of[2] = 1
+        if i2[3] > 0:
+            of[3] = 1
         return of
 
     def set_weight_1(self, weights):
@@ -270,17 +272,9 @@ def get_fitness(seed, nn, fps):
             return game.score
 
 
-def det(a, b):
-        return a[0] * b[1] - a[1] * b[0]
+def det(E11, E12, E21, E22):
+        return E11 * E22 - E21 * E12
 
-def intersect(p0,p1,p2,p3):
-    xdiff = (p0[0] - p1[0], p2[0] - p3[0])
-    ydiff = (p0[1] - p1[1], p2[1] - p3[1]) #Typo was here
-
-    div = det(xdiff, ydiff)
-    if div == 0:
-       return False
-    return True
 
 
 def dist(p1, p2):
@@ -288,31 +282,33 @@ def dist(p1, p2):
 
 #copied from https://stackoverflow.com/questions/3838329/how-can-i-check-if-two-segments-intersect
 def intersect(X1, Y1, X2, Y2, X3, Y3, X4, Y4):
-    try:
-        I1 = [min(X1,X2), max(X1,X2)]
-        I2 = [min(X3,X4), max(X3,X4)]
-        #Ia = [max( min(X1,X2), min(X3,X4) ), min( max(X1,X2), max(X3,X4))]
-        if (max(X1,X2) < min(X3,X4)):
-            return False
-        A1 = (Y1-Y2)/(X1-X2) 
-        A2 = (Y3-Y4)/(X3-X4)
-        b1 = Y1-A1*X1
-        b2 = Y3-A2*X3
-        if (A1 == A2):
-            return False
-        #Ya = A1 * Xa + b1
-        #Ya = A2 * Xa + b2
-        #A1 * Xa + b1 = A2 * Xa + b2
-        Xa = (b2 - b1) / (A1 - A2)
-        if ( (Xa < max( min(X1,X2), min(X3,X4) )) or (Xa > min( max(X1,X2), max(X3,X4) )) ):
-            return False
-        else:
+    A1 = Y1 - Y2
+    B1 = X2 - X1
+    A2 = Y3 - Y4
+    B2 = X4 - X3
+    C1 = -A1 * X1 - B1 * Y1
+    C2 = -A2 * X3 - B2 * Y3
+    if ((A1 * X3 + B1 * Y3 + C1 < 0) != (A1 * X4 + B1 * Y4 + C1 < 0 )):
+        if ((A2 * X1 + B2 * Y1 + C2 < 0) != ( A2 * X2 + B2 * Y2 + C2 < 0)):
             return True
-    except:
-        return False
+    return False
+
+def alt_intersect(X1, Y1, X2, Y2, X3, Y3, X4, Y4):
+    A1 = Y1 - Y2
+    B1 = X2 - X1
+    A2 = Y3 - Y4
+    B2 = X4 - X3
+    C1 = -A1 * X1 - B1 * Y1
+    C2 = -A2 * X3 - B2 * Y3
+    d = det(A1, B1, A2, B2)
+    x = det(A1, -C1, A2, -C2) / d
+    y = det(-C1, B1, -C2, B2) / d
+    
+    #Check if x and y values are in the range of both line segments
 
 
-def run_game(players, fps, nn=None):
+
+def run_game(neurals, starting_point, fps):
     pygame.init()
     pygame.display.set_caption("Neural Net Testing")
     window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -321,7 +317,6 @@ def run_game(players, fps, nn=None):
     clock = pygame.time.Clock()
     pygame.mouse.set_visible(1)
 
-    nn_on = (nn != None)
     running = True
 
 
@@ -333,7 +328,7 @@ def run_game(players, fps, nn=None):
     finish_point = [0,0]
 
     game = None
-
+    players = [Player(False, neurals[i], starting_point[0], starting_point[1]) for i in range(len(neurals))]
 
     while running:
         for event in pygame.event.get():
@@ -344,15 +339,18 @@ def run_game(players, fps, nn=None):
         mouse = pygame.mouse.get_pressed()
         mouse_pos = pygame.mouse.get_pos()
 
-
-
-
-        
         window.fill(background)
 
         if(stage > 0):
             if (game == None):
                 game = Game(FPS, tracks, players, finish_point)
+                for i in range(1000):
+                    print(i)
+                    game.update()
+                scores = game.scores()
+                best_neural = neurals[scores.index(max(scores))]
+                    
+                game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
             game.update()
             game.draw(window)
 
@@ -366,13 +364,12 @@ def run_game(players, fps, nn=None):
                 if dist(tracks[-1].corners[-1], mouse_pos) > NEW_TRACK_SEPARATION_DIST:
                     tracks[-1].corners.append(mouse_pos)
 
-            if mouse[1] and not last_mouse[1]:
-                finish_point = mouse_pos
-
             if mouse[2] and not last_mouse[2]:
+                finish_point = mouse_pos
                 stage += 1
             for track in tracks:
                 track.draw(window)
+            pygame.draw.circle(window, red, starting_point, 20)
 
         clock.tick(fps)
         pygame.display.update()
@@ -447,9 +444,10 @@ def run_game(players, fps, nn=None):
 # else:
 
 
+nns = [NeuralNetwork(len(Player.INDICATOR_ANGLES)) for i in range(100)]
+starting_point = [200,200]
 
-
-run_game([Player(True, None, blue, SCREEN_WIDTH/2,SCREEN_HEIGHT/2,0)], FPS)
+run_game(nns, starting_point, FPS)
 
 
 
