@@ -15,7 +15,7 @@ SCREEN_WIDTH = 1600
 NEW_TRACK_SEPARATION_DIST = 100
 NUM_OUTPUTS = 4
 
-FPS = 60
+FPS = 30
 
 
 black    = (   0,   0,   0)
@@ -33,21 +33,21 @@ background = black
 
 
 class Player(object):
-    MAX_SPEED = 30.0
+    MAX_SPEED = 120.0
     MAX_REVERSE_SPEED = -20.0
-    MAX_OMEGA = pi / 4
-    ALPHA_MAG = pi / 8
-    ACCELERATION_MAG = 25.0
-    BACKWARDS_ACCELERATION_MAG = -12.0
-    DRAG = 1.0
-    OMEGA_DRAG = pi / 4
+    MAX_OMEGA = pi / 3
+    ALPHA_MAG = pi / 2
+    ACCELERATION_MAG = 125.0
+    BACKWARDS_ACCELERATION_MAG = -75.0
+    DRAG = 5.0
+    OMEGA_DRAG = pi
     DEFAULT_COLOR = blue
     WIDTH = 20.0
     HEIGHT = 40.0
     EDGE_WIDTH = 2
-    INDICATOR_ANGLES = np.arange(-pi/2 - .01, pi/2 + .01, pi/6)
+    INDICATOR_ANGLES = np.arange(-pi/2 - .01, pi/2 + .01, pi/8)
     EXTRA_INDICATORS = 1
-    INDICATOR_LENGTH = 400.0
+    INDICATOR_LENGTH = 350.0
 
 
 
@@ -156,7 +156,7 @@ class Player(object):
                         if dist(inter, [self.x, self.y]) < distance:
                             distance = dist(inter, [self.x, self.y])
             if indicated:
-                o.append(100.0 / distance)
+                o.append((Player.INDICATOR_LENGTH - distance) / (100.0))
             else:
                 o.append(0.0)
         o.append(self.speed / Player.MAX_SPEED * 3.0)
@@ -174,8 +174,6 @@ class Player(object):
         for i in range(len(corners) - 1):
             pygame.draw.line(screen, self.color, corners[i], corners[i+1], Player.EDGE_WIDTH)
         pygame.draw.line(screen, self.color, corners[0], corners[-1], Player.EDGE_WIDTH)
-        print(self.indicate())
-        #if(self.nn != None):
         self.draw_indicators(screen)
             
 
@@ -199,7 +197,7 @@ class Track(object):
 
 
 class Game(object):
-    speed = 400
+    speed = 3.0
     min_distance = 200
     max_distance = 350
 
@@ -226,7 +224,7 @@ class Game(object):
         pygame.draw.circle(screen, green, self.finish_point, 20)
 
     def update(self):
-        s = float(Game.speed) / self.fps
+        s = self.fps / Game.speed
 
         for player in self.players:
             player.update(s)
@@ -237,7 +235,7 @@ class Game(object):
         for i, player in enumerate(self.players):
             #score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
             if not player.crashed:
-                player.score += player.speed
+                player.score += (player.speed - abs(player.omega) * player.speed / player.MAX_OMEGA / 2.5) 
             #if self.scores[i] < score:
             #    self.scores[i] = score
             #player.score = score
@@ -256,19 +254,20 @@ def create_players(neurals, starting_point):
 
 
 
-generations = 5
-starting_generation = 500
-generation_size = 200
+generations = 2
+starting_generation = 150
+generation_size = 150
 time_per_generation = 300
-survivors = 10
-starting_point = [100,700]
+survivors = 15
+random_per_generation = 1
+starting_point = [300,700]
 finish_point = [0,0]
 
 best_neurals = []
 
 best_neural = None
-#best_neural = pickle.load(open("eh ok.nn", "rb"))
-
+#best_neural = pickle.load(open("decent_nn.nn", "rb"))
+work_from_best_neural = False
 
 
 pygame.init()
@@ -302,9 +301,15 @@ while running:
     window.fill(background)
 
     if(stage > 0):
+
         if (game == None):
-            if best_neural == None:
-                neurals = [NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS) for i in range(starting_generation)]
+            count = 0
+            if best_neural == None or work_from_best_neural:
+                if work_from_best_neural:
+                    work_from_best_neural = False
+                    neurals = [NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS, best_neural) for i in range(starting_generation)]
+                else:
+                    neurals = [NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS) for i in range(starting_generation)]
                 players = create_players(neurals, starting_point)
                 game = Game(FPS, tracks, players, finish_point)
 
@@ -320,8 +325,13 @@ while running:
                     neurals = [player.nn for player in players]
                     best_neurals.append(neurals[0])
                     best_neural = neurals[0]
+
+                    for j in range(random_per_generation):
+                        neurals.append(NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS))
                     while len(neurals) < generation_size:
                         neurals.append(NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS, neurals[random.randint(0,survivors)]))
+
+
                     players = create_players(neurals, starting_point)
                     game = Game(FPS, tracks, players, finish_point)
                     for j in range(time_per_generation):
@@ -333,7 +343,6 @@ while running:
 
             game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
             #game = Game(FPS, tracks, [Player(True, None, starting_point[0], starting_point[1])], finish_point)
-
         game.update()
         game.draw(window)
 
