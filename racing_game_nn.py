@@ -5,10 +5,15 @@ import random
 import numpy as np
 import time
 from math import *
+import pickle
 
-SCREEN_HEIGHT = 700
-SCREEN_WIDTH = 1200
-NEW_TRACK_SEPARATION_DIST = 200
+from neuralnetwork import *
+from intersections import *
+
+SCREEN_HEIGHT = 900
+SCREEN_WIDTH = 1600
+NEW_TRACK_SEPARATION_DIST = 100
+NUM_OUTPUTS = 4
 
 FPS = 60
 
@@ -28,12 +33,12 @@ background = black
 
 
 class Player(object):
-    MAX_SPEED = 50.0
-    MAX_REVERSE_SPEED = -25.0
+    MAX_SPEED = 30.0
+    MAX_REVERSE_SPEED = -20.0
     MAX_OMEGA = pi / 4
     ALPHA_MAG = pi / 8
-    ACCELERATION_MAG = 30.0
-    BACKWARDS_ACCELERATION_MAG = -15.0
+    ACCELERATION_MAG = 25.0
+    BACKWARDS_ACCELERATION_MAG = -12.0
     DRAG = 1.0
     OMEGA_DRAG = pi / 4
     DEFAULT_COLOR = blue
@@ -41,7 +46,8 @@ class Player(object):
     HEIGHT = 40.0
     EDGE_WIDTH = 2
     INDICATOR_ANGLES = np.arange(-pi/2 - .01, pi/2 + .01, pi/6)
-    INDICATOR_LENGTH = 150.0
+    EXTRA_INDICATORS = 1
+    INDICATOR_LENGTH = 400.0
 
 
 
@@ -55,15 +61,22 @@ class Player(object):
         self.speed = 0
         self.tracks = []
         self.color = color
+        self.crashed = False
+        self.score = 0
 
 
     def update(self, s):
+        if self.crashed:
+            return
         corners = self.get_corners()
         for track in self.tracks:
             for i in range(len(track.corners)-1):
                 for j in range(len(corners) - 1):
-                    if intersect(track.corners[i][0],track.corners[i][1], track.corners[i+1][0],track.corners[i+1][1], corners[j][0],corners[j][1], corners[j+1][0], corners[j+1][1]):
+                    if alt_intersect(track.corners[i][0],track.corners[i][1], track.corners[i+1][0], \
+                        track.corners[i+1][1], corners[j][0],corners[j][1], corners[j+1][0], corners[j+1][1]):
+                        self.crashed = True
                         return
+
         if self.nn is not None:
             i = self.nn.output(self.indicate())
         else:
@@ -133,16 +146,20 @@ class Player(object):
         o = []
         for a in Player.INDICATOR_ANGLES:
             indicated = False
+            distance = 9999999.9
             for track in self.tracks:
                 for i in range(len(track.corners)-1):
                     point = self.find_indicator_point(a)
-                    if (intersect(self.x, self.y, point[0], point[1], \
-                        track.corners[i][0], track.corners[i][1], track.corners[i+1][0], track.corners[i+1][1] )):
+                    inter = intersect_dist(self.x, self.y, point[0], point[1],track.corners[i][0], track.corners[i][1], track.corners[i+1][0], track.corners[i+1][1] )
+                    if inter != None:
                         indicated = True
-                        break
-                if indicated:
-                    break
-            o.append(indicated)
+                        if dist(inter, [self.x, self.y]) < distance:
+                            distance = dist(inter, [self.x, self.y])
+            if indicated:
+                o.append(100.0 / distance)
+            else:
+                o.append(0.0)
+        o.append(self.speed / Player.MAX_SPEED * 3.0)
         return o
 
     def find_indicator_point(self, angle):
@@ -195,6 +212,7 @@ class Game(object):
         self.players = players
         self.tracks = tracks
         self.finish_point = finish_point
+        self.scores = [0.0 for i in range(len(players))]
         for player in self.players:
             player.tracks = tracks
 
@@ -212,242 +230,136 @@ class Game(object):
 
         for player in self.players:
             player.update(s)
+        self.update_scores()
 
 
-    def isOver(self):
-        return False
-
-    def scores(self):
-        return [1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y)) for player in self.players]
-
-
-
-def mod_sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-class NeuralNetwork(object):
-    def __init__(self, num_indicators, base_nn=None, hidden_layer_size=3, consec=0):
-        self.num_indicators = num_indicators
-        if base_nn == None:
-            self.w1 = np.random.randn(num_indicators, hidden_layer_size)
-            self.w2 = np.random.randn(hidden_layer_size, 4)
-        else:
-            if consec > 4:
-                consec = 4
-            self.w1 = base_nn.w1/(1 + consec) + np.random.randn(num_indicators, hidden_layer_size)/(5-consec)
-            self.w2 = base_nn.w2/(1 + consec) + np.random.randn(hidden_layer_size, 2)/(5-consec)
-
-    def output(self, indications):
-        o0 = np.array(indications)
-        i1 = np.dot(o0, self.w1)
-        o1 = mod_sigmoid(i1)
-        i2 = np.dot(o1, self.w2)
-
-        of = [0,0,0,0]
-        if i2[0] > 0:
-            of[0] = 1
-        if i2[1] > 0:
-            of[1] = 1
-        if i2[2] > 0:
-            of[2] = 1
-        if i2[3] > 0:
-            of[3] = 1
-        return of
-
-    def set_weight_1(self, weights):
-        self.w1 = weights
-
-    def set_weight_2(self, weights):
-        self.w2 = weights
-
-    def draw(self, screen):
-        for i in self.indicators:
-            i.draw(screen)
-
-def get_fitness(seed, nn, fps):
-    game = Game(seed, fps)
-    while True:
-        game.update()
-        if game.isOver():
-            return game.score
-
-
-def det(E11, E12, E21, E22):
-        return E11 * E22 - E21 * E12
+    def update_scores(self):
+        for i, player in enumerate(self.players):
+            score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
+            if self.scores[i] < score:
+                self.scores[i] = score
+            player.score = score
 
 
 
-def dist(p1, p2):
-    return sqrt(pow(p2[0] - p1[0], 2.0) + pow(p2[1] - p1[1], 2.0))
 
-#copied from https://stackoverflow.com/questions/3838329/how-can-i-check-if-two-segments-intersect
-def intersect(X1, Y1, X2, Y2, X3, Y3, X4, Y4):
-    A1 = Y1 - Y2
-    B1 = X2 - X1
-    A2 = Y3 - Y4
-    B2 = X4 - X3
-    C1 = -A1 * X1 - B1 * Y1
-    C2 = -A2 * X3 - B2 * Y3
-    if ((A1 * X3 + B1 * Y3 + C1 < 0) != (A1 * X4 + B1 * Y4 + C1 < 0 )):
-        if ((A2 * X1 + B2 * Y1 + C2 < 0) != ( A2 * X2 + B2 * Y2 + C2 < 0)):
-            return True
-    return False
-
-def alt_intersect(X1, Y1, X2, Y2, X3, Y3, X4, Y4):
-    A1 = Y1 - Y2
-    B1 = X2 - X1
-    A2 = Y3 - Y4
-    B2 = X4 - X3
-    C1 = -A1 * X1 - B1 * Y1
-    C2 = -A2 * X3 - B2 * Y3
-    d = det(A1, B1, A2, B2)
-    x = det(A1, -C1, A2, -C2) / d
-    y = det(-C1, B1, -C2, B2) / d
     
     #Check if x and y values are in the range of both line segments
 
 
 
-def run_game(neurals, starting_point, fps):
-    pygame.init()
-    pygame.display.set_caption("Neural Net Testing")
-    window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.update()
 
-    clock = pygame.time.Clock()
-    pygame.mouse.set_visible(1)
-
-    running = True
+def create_players(neurals, starting_point):
+    return [Player(False, neurals[i], starting_point[0], starting_point[1]) for i in range(len(neurals))]
 
 
-    stage = 0 # stage 0 = setting up track, stage 1 = racing
-    last_keys = pygame.key.get_pressed()
-    last_mouse = pygame.mouse.get_pressed()
-    tracks = []
-    current_track = Track([])
-    finish_point = [0,0]
 
-    game = None
-    players = [Player(False, neurals[i], starting_point[0], starting_point[1]) for i in range(len(neurals))]
+generations = 100
+starting_generation = 1000
+generation_size = 200
+time_per_generation = 300
+survivors = 10
+starting_point = [100,700]
+finish_point = [0,0]
 
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
+best_neurals = []
 
-        keys = pygame.key.get_pressed()
-        mouse = pygame.mouse.get_pressed()
-        mouse_pos = pygame.mouse.get_pos()
+best_neural = None
+#best_neural = pickle.load(open("bestnn.nn", "rb"))
 
-        window.fill(background)
 
-        if(stage > 0):
-            if (game == None):
+
+pygame.init()
+pygame.display.set_caption("Neural Net Testing")
+window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.update()
+
+clock = pygame.time.Clock()
+pygame.mouse.set_visible(1)
+
+running = True
+
+stage = 0 # stage 0 = setting up track, stage 1 = racing
+last_keys = pygame.key.get_pressed()
+last_mouse = pygame.mouse.get_pressed()
+tracks = []
+
+
+game = None
+
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    keys = pygame.key.get_pressed()
+    mouse = pygame.mouse.get_pressed()
+    mouse_pos = pygame.mouse.get_pos()
+
+    window.fill(background)
+
+    if(stage > 0):
+        if (game == None):
+            if best_neural == None:
+                neurals = [NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS) for i in range(starting_generation)]
+                players = create_players(neurals, starting_point)
                 game = Game(FPS, tracks, players, finish_point)
-                for i in range(1000):
+
+                for i in range(time_per_generation):
                     print(i)
                     game.update()
-                scores = game.scores()
-                best_neural = neurals[scores.index(max(scores))]
-                    
-                game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
-            game.update()
-            game.draw(window)
 
-            if game.isOver():
-                running = False
-                print(game.score)
-        else:
-            if mouse[0]:
-                if not last_mouse[0]:
-                    tracks.append(Track([mouse_pos]))
-                if dist(tracks[-1].corners[-1], mouse_pos) > NEW_TRACK_SEPARATION_DIST:
-                    tracks[-1].corners.append(mouse_pos)
+                best_neural = neurals[game.scores.index(max(game.scores))]
 
-            if mouse[2] and not last_mouse[2]:
-                finish_point = mouse_pos
-                stage += 1
-            for track in tracks:
-                track.draw(window)
-            pygame.draw.circle(window, red, starting_point, 20)
+                for i in range(generations):
+                    print("Generation: " + str(i))
+                    players = sorted(players, key=lambda x: x.score, reverse=True)[0:survivors]
+                    neurals = [player.nn for player in players]
+                    best_neurals.append(neurals[0])
+                    best_neural = neurals[0]
+                    while len(neurals) < generation_size:
+                        neurals.append(NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS, neurals[random.randint(0,survivors)]))
+                    players = create_players(neurals, starting_point)
+                    game = Game(FPS, tracks, players, finish_point)
+                    for j in range(time_per_generation):
+                        print("Generation: "+ str(i) + " - " + str(j))
+                        game.update()
+                
 
-        clock.tick(fps)
-        pygame.display.update()
+                pickle.dump(best_neural, open("bestnn.nn", "wb"))
 
-        last_mouse = mouse
-        last_keys = keys
+            game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
+            #game = Game(FPS, tracks, [Player(True, None, starting_point[0], starting_point[1])], finish_point)
+
+        game.update()
+        game.draw(window)
+
+    else:
+        if mouse[0]:
+            if not last_mouse[0]:
+                tracks.append(Track([mouse_pos]))
+            if dist(tracks[-1].corners[-1], mouse_pos) > NEW_TRACK_SEPARATION_DIST:
+                tracks[-1].corners.append(mouse_pos)
+
+        if mouse[2] and not last_mouse[2]:
+            finish_point = mouse_pos
+            stage += 1
+            pickle.dump(tracks, open("track1.track", "wb"))
+        for track in tracks:
+            track.draw(window)
+        pygame.draw.circle(window, red, starting_point, 20)
+
+    clock.tick(FPS)
+    pygame.display.update()
+
+    last_mouse = mouse
+    last_keys = keys
  
 
 
-# seed = 1
-
-# ai_on = True
-
-# if ai_on:
-
-#   first_generation_size = 20000
-#   generation_size = 2000
-#   top_choice_num = 6
 
 
-    
-
-#   indicators = [PositionIndicator()]
-
-#   for x in range(150, 500, 75):
-#       for y in range(100, 550, 50):
-#           indicators.append(Indicator(x, y))
-
-
-#   t = [time.time()]
-
-#   i = [NeuralNetwork(indicators, None, 5) for j in range(first_generation_size)]
-#   i = sorted(i, key=lambda x: get_fitness(seed, x, FPS), reverse=True)
-#   n = i[0:top_choice_num]
-
-#   t.append(time.time())
-#   best = [get_fitness(seed,n[0],FPS)]
-#   consec = 0
-
-#   print(str(0) + " - " + str(t[-1] - t[-2]) + " - " + str(best[0]))
-
-#   for j in range(1,20):
-        
-#       i = []
-#       for k in n:
-#           i.extend([NeuralNetwork(indicators, k, 5, consec) for q in range(int(generation_size/float(top_choice_num + 1)))])
-#           i.append(k)
-#       i.extend([NeuralNetwork(indicators, None, 5) for q in range(int(generation_size/float(top_choice_num + 1)))])
-
-#       i = sorted(i, key=lambda x: get_fitness(seed, x, FPS), reverse=True)
-#       n = i[0:top_choice_num]
-
-#       t.append(time.time())
-#       best.append(get_fitness(seed,n[0],FPS))
-#       if best[-1] == best[-2]:
-#           consec += 1
-#       else:
-#           consec = 0
-#       print(str(j) + " - " + str(t[-1] - t[-2]) + " - " + str(best[-1]))
-
-#   t1 = time.time()
-#   print("Time to execute: " + str(t[-1] - t[0]))
-#   print("Best distance:   " + str(get_fitness(seed,n[0],FPS)))
-#   #print(n[0].w1)
-#   #print(n[0].w2)
-
-
-# game = Game(seed, FPS)
-
-# if ai_on:
-#   run_game(game, FPS, n[0])
-# else:
-
-
-nns = [NeuralNetwork(len(Player.INDICATOR_ANGLES)) for i in range(100)]
-starting_point = [200,200]
-
-run_game(nns, starting_point, FPS)
 
 
 
