@@ -235,10 +235,12 @@ class Game(object):
 
     def update_scores(self):
         for i, player in enumerate(self.players):
-            score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
-            if self.scores[i] < score:
-                self.scores[i] = score
-            player.score = score
+            #score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
+            if not player.crashed:
+                player.score += player.speed
+            #if self.scores[i] < score:
+            #    self.scores[i] = score
+            #player.score = score
 
 
 
@@ -254,8 +256,8 @@ def create_players(neurals, starting_point):
 
 
 
-generations = 100
-starting_generation = 1000
+generations = 5
+starting_generation = 500
 generation_size = 200
 time_per_generation = 300
 survivors = 10
@@ -265,7 +267,7 @@ finish_point = [0,0]
 best_neurals = []
 
 best_neural = None
-#best_neural = pickle.load(open("bestnn.nn", "rb"))
+#best_neural = pickle.load(open("eh ok.nn", "rb"))
 
 
 
@@ -323,7 +325,7 @@ while running:
                     players = create_players(neurals, starting_point)
                     game = Game(FPS, tracks, players, finish_point)
                     for j in range(time_per_generation):
-                        print("Generation: "+ str(i) + " - " + str(j))
+                        print("Generation: "+ str(i) + " - Frame: " + str(j))
                         game.update()
                 
 
