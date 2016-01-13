@@ -7,12 +7,13 @@ import time
 from math import *
 import pickle
 
+
 from neuralnetwork import *
 from intersections import *
 
 SCREEN_HEIGHT = 900
-SCREEN_WIDTH = 1600
-NEW_TRACK_SEPARATION_DIST = 100
+SCREEN_WIDTH = 1700
+NEW_TRACK_SEPARATION_DIST = 60
 NUM_OUTPUTS = 4
 
 FPS = 30
@@ -156,7 +157,7 @@ class Player(object):
                         if dist(inter, [self.x, self.y]) < distance:
                             distance = dist(inter, [self.x, self.y])
             if indicated:
-                o.append((Player.INDICATOR_LENGTH - distance) / (100.0))
+                o.append( (Player.INDICATOR_LENGTH * 2)/(distance))
             else:
                 o.append(0.0)
         o.append(self.speed / Player.MAX_SPEED * 3.0)
@@ -235,7 +236,10 @@ class Game(object):
         for i, player in enumerate(self.players):
             #score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
             if not player.crashed:
-                player.score += (player.speed - abs(player.omega) * player.speed / player.MAX_OMEGA / 2.5) 
+                player.score += (player.speed - abs(player.omega) * player.MAX_SPEED / player.MAX_OMEGA / 3)
+
+            if player.crashed or abs(player.speed) < Player.MAX_SPEED / 10:
+                player.score -= Player.MAX_SPEED
             #if self.scores[i] < score:
             #    self.scores[i] = score
             #player.score = score
@@ -254,20 +258,20 @@ def create_players(neurals, starting_point):
 
 
 
-generations = 2
-starting_generation = 150
+generations = 35
+starting_generation = 300
 generation_size = 150
-time_per_generation = 300
-survivors = 15
-random_per_generation = 1
-starting_point = [300,700]
+time_per_generation = 200
+survivors = 10
+random_per_generation = 25
+starting_point = [700,500]
 finish_point = [0,0]
 
 best_neurals = []
 
 best_neural = None
-#best_neural = pickle.load(open("decent_nn.nn", "rb"))
-work_from_best_neural = False
+best_neural = pickle.load(open("topnn.nn", "rb"))
+work_from_best_neural = True
 
 
 pygame.init()
@@ -282,7 +286,7 @@ running = True
 
 stage = 0 # stage 0 = setting up track, stage 1 = racing
 last_keys = pygame.key.get_pressed()
-last_mouse = pygame.mouse.get_pressed()
+last_mouse = pygame.mouse.get_pressed() 
 tracks = []
 
 
@@ -312,6 +316,7 @@ while running:
                     neurals = [NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS) for i in range(starting_generation)]
                 players = create_players(neurals, starting_point)
                 game = Game(FPS, tracks, players, finish_point)
+
 
                 for i in range(time_per_generation):
                     print(i)
@@ -367,7 +372,6 @@ while running:
     last_mouse = mouse
     last_keys = keys
  
-
 
 
 
