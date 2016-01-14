@@ -13,7 +13,7 @@ from intersections import *
 
 SCREEN_HEIGHT = 900
 SCREEN_WIDTH = 1700
-NEW_TRACK_SEPARATION_DIST = 75
+NEW_TRACK_SEPARATION_DIST = 50
 NUM_OUTPUTS = 4
 
 FPS = 30
@@ -64,6 +64,7 @@ class Player(object):
         self.color = color
         self.crashed = False
         self.score = 0
+        self.indicator_collisions = []
 
 
     def update(self, s):
@@ -148,6 +149,7 @@ class Player(object):
         for a in Player.INDICATOR_ANGLES:
             indicated = False
             distance = 9999999.9
+            saved_pos = ()
             for track in self.tracks:
                 for i in range(len(track.corners)-1):
                     point = self.find_indicator_point(a)
@@ -155,8 +157,10 @@ class Player(object):
                     if inter != None:
                         indicated = True
                         if dist(inter, [self.x, self.y]) < distance:
+                            saved_pos = inter
                             distance = dist(inter, [self.x, self.y])
             if indicated:
+                self.indicator_collisions.append(saved_pos)
                 o.append( (Player.INDICATOR_LENGTH * 2)/(distance))
             else:
                 o.append(0.0)
@@ -181,7 +185,10 @@ class Player(object):
     def draw_indicators(self, screen):
         for angle in Player.INDICATOR_ANGLES:
             pygame.draw.line(screen, self.color, (self.x, self.y), self.find_indicator_point(angle))
-
+        indicated = self.indicate()[0:-2]
+        for indication in self.indicator_collisions:
+            pygame.draw.circle(window, white, (int(indication[0]), int(indication[1])), 7)
+        self.indicator_collisions = []
 
 
             
@@ -256,13 +263,20 @@ class Game(object):
 def create_players(neurals, starting_point):
     return [Player(False, neurals[i], starting_point[0], starting_point[1]) for i in range(len(neurals))]
 
+MIN_MUTATION_AMOUNT = .1
+MAX_MUTATION_AMOUNT = .3
+
+def calculate_mutation_amount(scores):
+    consec = sum([1 if in_range(scores[-1]-1, scores[-1]+1, score) else 0 for score in scores])
+    return MIN_MUTATION_AMOUNT + (MAX_MUTATION_AMOUNT - MIN_MUTATION_AMOUNT) / (1 + np.exp(-(consec - 4)))
+
 
 
 generations = 10
 starting_generation = 300
 generation_size = 100
-time_per_generation = 300
-survivors = 15
+time_per_generation = 250
+survivors = 20
 
 starting_point = [800,500]
 finish_point = [0,0]
@@ -270,7 +284,7 @@ finish_point = [0,0]
 best_neurals = []
 
 best_neural = None
-#best_neural = pickle.load(open("superlongtime.nn", "rb"))
+best_neural = pickle.load(open("bestnn.nn", "rb"))
 work_from_best_neural = False
 
 
@@ -288,7 +302,7 @@ stage = 0 # stage 0 = setting up track, stage 1 = racing
 last_keys = pygame.key.get_pressed()
 last_mouse = pygame.mouse.get_pressed() 
 tracks = []
-best_scores = []
+scores = []
 
 game = None
 
@@ -331,14 +345,18 @@ while running:
                     players = sorted(game.players[:], key=lambda x: x.score, reverse=True)[0:survivors]
                     neurals = [player.nn for player in players]
 
+                    scores.append(players[0].score)
+                    best_neurals.append(neurals[0])
+                    best_neural = neurals[0]
+
+                    mutation_amount = calculate_mutation_amount(scores)
+                    print(mutation_amount)
                     while len(neurals) < generation_size:
-                        neurals.append(breed_networks(random.choice(neurals), random.choice(neurals)))
+                        neurals.append(breed_networks(random.choice(neurals), random.choice(neurals), mutation_amount))
                         #neurals.append(breed_networks(random.choice(neurals[0:survivors]), random.choice(neurals[0:survivors])))
                         #neurals.append(NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS, neurals[random.randint(0,survivors)]))
 
-                    best_neurals.append(neurals[0])
-                    best_neural = neurals[0]
-                    best_scores.append(players[0].score)
+
                     print("Best Score of gen " + str(i) + " was: " + str(players[0].score))
 
 
@@ -346,7 +364,7 @@ while running:
 
 
                 pickle.dump(best_neural, open("bestnn.nn", "wb"))
-            print(best_scores)
+            print(scores)
             game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
             #game = Game(FPS, tracks, [Player(True, None, starting_point[0], starting_point[1])], finish_point)
         game.update()
