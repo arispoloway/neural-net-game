@@ -1,9 +1,19 @@
 import numpy as np
 from math import *
+import copy
 
 
 def mod_sigmoid(x):
     return 1 / (1 + np.exp(-x))
+
+
+BREED_MUTATION_CHANCE = 0.15
+
+def breed_networks(nn1, nn2):
+    new_nn = copy.copy(nn1)
+    new_nn.w1 = (nn1.w1  + nn2.w1) * (1 - BREED_MUTATION_CHANCE) / 2 + BREED_MUTATION_CHANCE * np.random.randn(nn1.w1.shape[0], nn1.w1.shape[1])
+    new_nn.w2 = (nn1.w2  + nn2.w2) * (1 - BREED_MUTATION_CHANCE) / 2 + BREED_MUTATION_CHANCE * np.random.randn(nn1.w2.shape[0], nn1.w2.shape[1])
+    return new_nn
 
 class NeuralNetwork(object):
     def __init__(self, num_indicators, num_outputs, base_nn=None, hidden_layer_size=5):
