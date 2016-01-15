@@ -9,32 +9,37 @@ def mod_sigmoid(x):
 
 
 def breed_networks(nn1, nn2, mutation_percent):
-    new_nn = copy.deepcopy(nn1)
-    for i in range(len(new_nn.weights)):
-        new_nn.weights[i] = (nn1.weights[i]  + nn2.weights[i]) * (1 - mutation_percent) / 2 + mutation_percent * np.random.randn(nn1.weights[i].shape[0], nn1.weights[i].shape[1])
+    new_nn = copy.copy(nn1)
+    new_nn.w1 = (nn1.w1  + nn2.w1) * (1 - mutation_percent) / 2 + mutation_percent * np.random.randn(nn1.w1.shape[0], nn1.w1.shape[1])
+    new_nn.w2 = (nn1.w2  + nn2.w2) * (1 - mutation_percent) / 2 + mutation_percent * np.random.randn(nn1.w2.shape[0], nn1.w2.shape[1])
     return new_nn
 
 class NeuralNetwork(object):
-    def __init__(self, num_indicators, num_outputs, base_nn=None, hidden_layer_size=5, num_hidden_layers=2):
+    def __init__(self, num_indicators, num_outputs, base_nn=None, hidden_layer_size=5):
         self.num_indicators = num_indicators
-        self.num_outputs = num_outputs
-        self.weights = []
         if base_nn == None:
-            self.weights.append(np.random.randn(num_indicators, hidden_layer_size))
-            for i in range(num_hidden_layers-1):
-                self.weights.append(np.random.randn(hidden_layer_size, hidden_layer_size))
-            self.weights.append(np.random.randn(hidden_layer_size, num_outputs))
+            self.w1 = np.random.randn(num_indicators, hidden_layer_size)
+            self.w2 = np.random.randn(hidden_layer_size, num_outputs)
         else:
-            for weight in base_nn.weights:
-                self.weights.append(weight/2 + np.random.randn(weight.shape[0], weight.shape[1])/2)
+            self.w1 = base_nn.w1/2 + np.random.randn(num_indicators, hidden_layer_size)/2
+            self.w2 = base_nn.w2/2 + np.random.randn(hidden_layer_size, num_outputs)/2
 
     def output(self, indications):
-        o = np.array(indications)
-        for weight in self.weights:
-            i = np.dot(o, weight)
-            o = mod_sigmoid(i)
+        o0 = np.array(indications)
+        i1 = np.dot(o0, self.w1)
+        o1 = mod_sigmoid(i1)
+        i2 = np.dot(o1, self.w2)
 
-        return [1 if v > 0.5 else 0 for v in o]
+        of = [0,0,0,0]
+        if i2[0] > 0:
+            of[0] = 1
+        if i2[1] > 0:
+            of[1] = 1
+        if i2[2] > 0:
+            of[2] = 1
+        if i2[3] > 0:
+            of[3] = 1
+        return of
 
     def set_weight_1(self, weights):
         self.w1 = weights

@@ -47,7 +47,7 @@ class Player(object):
     HEIGHT = 40.0
     EDGE_WIDTH = 2
     INDICATOR_ANGLES = np.arange(-pi/2 - .01, pi/2 + .01, pi/8)
-    EXTRA_INDICATORS = 1
+    EXTRA_INDICATORS = 2
     INDICATOR_LENGTH = 400.0
 
 
@@ -165,6 +165,7 @@ class Player(object):
             else:
                 o.append(0.0)
         o.append(self.speed / Player.MAX_SPEED * 3.0)
+        o.append(self.omega / Player.MAX_OMEGA * 3.0)
         return o
 
     def find_indicator_point(self, angle):
@@ -242,7 +243,7 @@ class Game(object):
         for i, player in enumerate(self.players):
             #score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
             if not player.crashed:
-                self.players[i].score += (player.speed - abs(player.omega) * player.MAX_SPEED / player.MAX_OMEGA / 4)
+                self.players[i].score += (player.speed - abs(player.omega) * player.MAX_SPEED / player.MAX_OMEGA / 2)
 
             if player.crashed or player.speed < Player.MAX_SPEED / 10:
                 self.players[i].score -= Player.MAX_SPEED/3
