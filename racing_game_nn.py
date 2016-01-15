@@ -35,8 +35,8 @@ background = black
 
 class Player(object):
     MAX_SPEED = 120.0
-    MAX_REVERSE_SPEED = -20.0
-    MAX_OMEGA = pi / 3
+    MAX_REVERSE_SPEED = -50.0
+    MAX_OMEGA = pi / 2
     ALPHA_MAG = pi / 2
     ACCELERATION_MAG = 125.0
     BACKWARDS_ACCELERATION_MAG = -75.0
@@ -48,7 +48,7 @@ class Player(object):
     EDGE_WIDTH = 2
     INDICATOR_ANGLES = np.arange(-pi/2 - .01, pi/2 + .01, pi/8)
     EXTRA_INDICATORS = 1
-    INDICATOR_LENGTH = 350.0
+    INDICATOR_LENGTH = 400.0
 
 
 
@@ -264,7 +264,7 @@ def create_players(neurals, starting_point):
     return [Player(False, neurals[i], starting_point[0], starting_point[1]) for i in range(len(neurals))]
 
 MIN_MUTATION_AMOUNT = .1
-MAX_MUTATION_AMOUNT = .3
+MAX_MUTATION_AMOUNT = .4
 
 def calculate_mutation_amount(scores):
     consec = sum([1 if in_range(scores[-1]-1, scores[-1]+1, score) else 0 for score in scores])
@@ -273,19 +273,23 @@ def calculate_mutation_amount(scores):
 
 
 generations = 10
-starting_generation = 300
+starting_generation = 200
 generation_size = 100
-time_per_generation = 250
-survivors = 20
+time_per_generation = 300
+survivors = 25
 
-starting_point = [800,500]
+starting_point = [300,100]
 finish_point = [0,0]
 
 best_neurals = []
 
 best_neural = None
 best_neural = pickle.load(open("bestnn.nn", "rb"))
-work_from_best_neural = False
+mode = 0
+# 0 - train from scratch
+# 1 - train from best_neural
+# 2 - play with best neural
+# 3 - play the game
 
 
 pygame.init()
@@ -322,8 +326,8 @@ while running:
 
         if (game == None):
             count = 0
-            if best_neural == None or work_from_best_neural:
-                if work_from_best_neural:
+            if mode < 2:
+                if mode == 1:
                     work_from_best_neural = False
                     neurals = [NeuralNetwork(len(Player.INDICATOR_ANGLES) + Player.EXTRA_INDICATORS, NUM_OUTPUTS, best_neural) for i in range(starting_generation)]
                 else:
@@ -365,8 +369,11 @@ while running:
 
                 pickle.dump(best_neural, open("bestnn.nn", "wb"))
             print(scores)
-            game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
-            #game = Game(FPS, tracks, [Player(True, None, starting_point[0], starting_point[1])], finish_point)
+            if mode != 3:
+                game = Game(FPS, tracks, [Player(True, best_neural, starting_point[0], starting_point[1])], finish_point)
+            else:
+                game = Game(FPS, tracks, [Player(True, None, starting_point[0], starting_point[1])], finish_point)
+
         game.update()
         game.draw(window)
 
