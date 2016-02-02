@@ -29,17 +29,9 @@ class NeuralNetwork(object):
         i1 = np.dot(o0, self.w1)
         o1 = mod_sigmoid(i1)
         i2 = np.dot(o1, self.w2)
+        o2 = mod_sigmoid(i2)
 
-        of = [0,0,0,0]
-        if i2[0] > 0:
-            of[0] = 1
-        if i2[1] > 0:
-            of[1] = 1
-        if i2[2] > 0:
-            of[2] = 1
-        if i2[3] > 0:
-            of[3] = 1
-        return of
+        return [i for i in o2]
 
     def set_weight_1(self, weights):
         self.w1 = weights

@@ -13,8 +13,8 @@ from intersections import *
 
 SCREEN_HEIGHT = 900
 SCREEN_WIDTH = 1700
-NEW_TRACK_SEPARATION_DIST = 50
-NUM_OUTPUTS = 4
+NEW_TRACK_SEPARATION_DIST = 75
+NUM_OUTPUTS = 2
 
 FPS = 30
 
@@ -81,25 +81,36 @@ class Player(object):
 
         if self.nn is not None:
             i = self.nn.output(self.indicate())
+            i[0] = (i[0] - 0.5 ) * 4
+            i[1] = (i[1] - 0.5 ) * 4
+            if i[0] > 1.0:
+                i[0] = 1.0
+            if i[0] < -1.0:
+                i[0] = -1.0
+            if i[1] > 1.0:
+                i[1] = 1.0
+            if i[1] < -1.0:
+                i[1] = -1.0
         else:
             keys = pygame.key.get_pressed()
             i = [0,0,0,0]
             if keys[pygame.K_UP] == True:
                 i[0] = 1
             if keys[pygame.K_DOWN] == True:
-                i[1] = 1
+                i[0] = -1
             if keys[pygame.K_LEFT] == True:
-                i[2] = 1
+                i[1] = -1
             if keys[pygame.K_RIGHT] == True:
-                i[3] = 1
+                i[1] = 1
 
-        if i[0]:
-            if self.speed <= Player.MAX_SPEED:
+        if i[0] > 0.0:
+            if self.speed <= Player.MAX_SPEED * i[0]:
                 self.speed += Player.ACCELERATION_MAG / s
-        if i[1]:
-            if self.speed  >= Player.MAX_REVERSE_SPEED:
+        if i[0] < 0.0:
+            if self.speed  <= Player.MAX_REVERSE_SPEED * i[0]:
                 self.speed += Player.BACKWARDS_ACCELERATION_MAG / s
-        if not (i[0] or i[1]):
+
+        if abs(i[0]) < .25:
             old_speed = self.speed
             if(self.speed > 0):
                 self.speed -= Player.DRAG * sqrt(abs(self.speed)) / s
@@ -108,15 +119,11 @@ class Player(object):
             if abs(old_speed + self.speed) < (abs(old_speed) + abs(self.speed)):
                 self.speed = 0.0
 
+        if not abs(self.omega) >= abs(i[1] * Player.MAX_OMEGA):
+            self.omega += self.ALPHA_MAG / s * i[1]
 
-        if i[3] and not i[2]:
-            if not self.omega >= Player.MAX_OMEGA:
-                self.omega += self.ALPHA_MAG / s
-        if i[2] and not i[3]:
-            if not self.omega <= -Player.MAX_OMEGA:
-                self.omega -= self.ALPHA_MAG / s
 
-        if i[2] == i[3]:
+        if in_range(-.1, .1, i[1]):
             old_omega = self.omega
             if(self.omega > 0):
                 self.omega -= Player.OMEGA_DRAG * sqrt(abs(self.omega)) / s
@@ -243,10 +250,10 @@ class Game(object):
         for i, player in enumerate(self.players):
             #score = 1 / dist((self.finish_point[0], self.finish_point[1]), (player.x, player.y))
             if not player.crashed:
-                self.players[i].score += (player.speed - abs(player.omega) * player.MAX_SPEED / player.MAX_OMEGA / 2)
+                self.players[i].score += (player.speed - abs(player.omega) * player.MAX_SPEED / player.MAX_OMEGA *.75)
 
             if player.crashed or player.speed < Player.MAX_SPEED / 10:
-                self.players[i].score -= Player.MAX_SPEED/3
+                self.players[i].score -= Player.MAX_SPEED
 
             #if self.scores[i] < score:
             #    self.scores[i] = score
@@ -264,8 +271,8 @@ class Game(object):
 def create_players(neurals, starting_point):
     return [Player(False, neurals[i], starting_point[0], starting_point[1]) for i in range(len(neurals))]
 
-MIN_MUTATION_AMOUNT = .1
-MAX_MUTATION_AMOUNT = .4
+MIN_MUTATION_AMOUNT = 0.1
+MAX_MUTATION_AMOUNT = 0.3
 
 def calculate_mutation_amount(scores):
     consec = sum([1 if in_range(scores[-1]-1, scores[-1]+1, score) else 0 for score in scores])
@@ -273,13 +280,13 @@ def calculate_mutation_amount(scores):
 
 
 
-generations = 10
-starting_generation = 200
-generation_size = 100
-time_per_generation = 300
-survivors = 25
+generations = 15
+starting_generation = 300
+generation_size = 150
+time_per_generation = 500
+survivors = 30
 
-starting_point = [300,100]
+starting_point = [300,200]
 finish_point = [0,0]
 
 best_neurals = []
